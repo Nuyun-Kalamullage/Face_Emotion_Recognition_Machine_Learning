@@ -1,39 +1,58 @@
-import cv2
-from keras.models import model_from_json
+import tensorflow as tf
+from tensorflow.keras.models import model_from_json
 import numpy as np
-# from keras_preprocessing.image import load_img
-json_file = open("facialemotionmodel.json", "r")
-model_json = json_file.read()
-json_file.close()
-model = model_from_json(model_json)
+import cv2
 
-model.load_weights("facialemotionmodel.h5")
-haar_file=cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-face_cascade=cv2.CascadeClassifier(haar_file)
+# Load the model architecture and weights
+with open('facialemotionmodel.json', 'r') as json_file:
+    model_json = json_file.read()
 
-def extract_features(image):
-    feature = np.array(image)
-    feature = feature.reshape(1,48,48,1)
-    return feature/255.0
+# Ensure custom objects are registered properly
+custom_objects = {
+    'Sequential': tf.keras.Sequential,
+}
 
-webcam=cv2.VideoCapture(0)
-labels = {0 : 'angry', 1 : 'disgust', 2 : 'fear', 3 : 'happy', 4 : 'neutral', 5 : 'sad', 6 : 'surprise'}
+# Load the model using a custom object scope
+model = tf.keras.models.model_from_json(model_json, custom_objects=custom_objects)
+model.load_weights('facialemotionmodel.h5')
+# Save the model without the optimizer state
+model.save('facialemotionmodellite.h5', include_optimizer=False)
+
+
+# Define the labels
+emotion_labels = ['Angry', 'Disgust', 'Fear', 'Happy', 'Sad', 'Surprise', 'Neutral']
+
+# Initialize the webcam
+cap = cv2.VideoCapture(0)
+
 while True:
-    i,im=webcam.read()
-    gray=cv2.cvtColor(im,cv2.COLOR_BGR2GRAY)
-    faces=face_cascade.detectMultiScale(im,1.3,5)
-    try: 
-        for (p,q,r,s) in faces:
-            image = gray[q:q+s,p:p+r]
-            cv2.rectangle(im,(p,q),(p+r,q+s),(255,0,0),2)
-            image = cv2.resize(image,(48,48))
-            img = extract_features(image)
-            pred = model.predict(img)
-            prediction_label = labels[pred.argmax()]
-            # print("Predicted Output:", prediction_label)
-            # cv2.putText(im,prediction_label)
-            cv2.putText(im, '% s' %(prediction_label), (p-10, q-10),cv2.FONT_HERSHEY_COMPLEX_SMALL,2, (0,0,255))
-        cv2.imshow("Output",im)
-        cv2.waitKey(27)
-    except cv2.error:
-        pass
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Convert the frame to grayscale
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Resize the frame to 48x48
+    resized_frame = cv2.resize(gray_frame, (48, 48))
+    # Normalize the pixel values
+    normalized_frame = resized_frame / 255.0
+    # Reshape the frame for prediction
+    reshaped_frame = np.reshape(normalized_frame, (1, 48, 48, 1))
+
+    # Predict the emotion
+    prediction = model.predict(reshaped_frame)
+    emotion = emotion_labels[np.argmax(prediction)]
+
+    # Display the emotion on the frame
+    cv2.putText(frame, emotion, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+    # Show the frame
+    cv2.imshow('Real-Time Emotion Detection', frame)
+
+    # Break the loop on 'q' key press
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release the webcam and close the window
+cap.release()
+cv2.destroyAllWindows()
